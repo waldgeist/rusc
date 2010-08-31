@@ -1,4 +1,4 @@
-require "functions.rb"
+require "rusc/functions.rb"
 
 class RuscWindowPrompt < RuscWindow
 	include RuscFunctions

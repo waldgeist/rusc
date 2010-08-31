@@ -1,5 +1,5 @@
-require "general.rb"
-require "frame.rb"
+require "rusc/general.rb"
+require "rusc/frame.rb"
 
 class RuscFrontend
 	include Ncurses
@@ -19,8 +19,10 @@ class RuscFrontend
 		Ncurses.stdscr.intrflush(false)  # turn off flush-on-interrupt
 		Ncurses.stdscr.keypad(true)      # turn on keypad mode
 		Ncurses.stdscr.scrollok(true)
-		Ncurses::nodelay(Ncurses::stdscr, TRUE)
+#		Ncurses::nodelay(Ncurses::stdscr, TRUE)
 		Ncurses::curs_set(1)			# 0: invisible cursor, 1: visible cursor
+    Ncurses::halfdelay(tenths = 10) # RK added
+
 		if Ncurses::has_colors?()
 			Ncurses::use_default_colors()
 			Ncurses::start_color()
@@ -131,6 +133,7 @@ class RuscFrontend
 				Ncurses.refresh()
 			rescue => e		
 				$logger.error e.inspect
+				$logger.error e.backtrace # RK added I need to see trace
 				error( e.message )
 			end
 		end

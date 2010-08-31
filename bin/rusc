@@ -2,5 +2,5 @@
 
 require 'rubygems'
 require 'rusc'
-exit Rusc.main(ARGV)
+exit Rusc.main( ARGV )
 

@@ -1,5 +1,5 @@
-require "window.rb"
-require "frame.rb"
+require "rusc/window.rb"
+require "rusc/frame.rb"
 
 class RuscWindowFrameCell  < RuscWindowFrame
 	attr_accessor :idx, :color, :content, :width, :format, :flag, :marker, :note, :error, :selected, :function, :script

@@ -5,8 +5,8 @@ begin
   require 'jeweler'
   Jeweler::Tasks.new do |gem|
     gem.name = "rusc"
-    gem.summary = %Q{TODO: one-line summary of your gem}
-    gem.description = %Q{TODO: longer description of your gem}
+    gem.summary = %Q{Rusc: A vi-like, ncurses-based spreadsheet calculator for commandline usage}
+    gem.description = %Q{Still in development}
     gem.email = "freigeist@fantasymail.de"
     gem.homepage = "http://github.com/waldgeist/rusc"
     gem.authors = ["waldgeist"]

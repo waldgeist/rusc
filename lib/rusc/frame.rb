@@ -1,5 +1,18 @@
-require "window.rb"
-require "functions.rb"
+require "rusc/window.rb"
+require "rusc/functions.rb"
+
+# 2009-10-04 14:13 added RK after suggestion on http://www.ruby-forum.com/topic/196618#856703
+# these are for 1.8 compatibility
+class Fixnum
+   def ord
+     self
+   end
+## mostly for control and meta characters
+   def getbyte(n)
+     self
+   end
+end unless "a"[0] == "a"
+   
 
 class RuscWindowFrame < RuscWindow
 	include RuscFunctions
@@ -22,6 +35,8 @@ class RuscWindowFrame < RuscWindow
 		update_status_bar()
 		# test()
 		@w.wrefresh
+    @stack = [] # RK added for keys - to get complex keys  - i put here since super not called
+    # XXX Have you called super() so that parents initialize can get called - RK
 	end
 
 	def currow( cell = @curcell )
@@ -435,45 +450,214 @@ class RuscWindowFrame < RuscWindow
 	
 	def edit_cell( cell )
 		cell_old_content = @c[ cell ].content
-		@c[ cell ].content = ""
-		update_status_bar()
-		loop do
-			ch = Ncurses.wgetch( @w ) 
-			case ch		# http://www.asciitable.com/
-			when -1
-				sleep @@sleep_time
-			when 27		# KEY_ESC
-				@c[ cell ].content = cell_old_content 
-				update_status_bar()
-				break
-			when KEY_BACKSPACE, 263
-				@c[ cell ].content.chop!
-			when 9 #ctrl i = TAB 
+#		@c[ cell ].content = ""
+
+#	update_status_bar()
+    config = {}
+    config[:default] = cell_old_content
+		@status_info = @curcell + " [" + currow().to_s + ", " + curcol().to_s + "]: "
+    status, str =  rbgetstr(@w, r=0, c=0, prompt=@status_info, maxlen=80, config)
+
+    if str
+      # remove = if first char. If we remove at this point, how will we know alignment
+      if str[0,1] == "="
+        str.slice!(0,1)
+        # we should store attributes for this cell somewhere in hash
+      end 
+    end
+
+    case status
+    when 0
+      # go down a cell but no longer in edit mode
+      @c[ cell ].content = str
+      motion( 1, 0 )
+    when :TAB
+      # go to next cell and keep editing
+      @c[ cell ].content = str
 				motion( 0, 1 )
 				edit_cell( @curcell )
-				break
-			when KEY_ENTER, ?\n, ?\r
-				if @c[ cell ].content[0] == "="
-					@c[ cell ].content.shift
-					@c[ cell ].content
-				end
-				motion( 1, 0 )
-				break
-			else
-				if ch < 256 and ch > 0	
-				@c[ cell ].content += ch.chr
-				end
-			end
-			cell_xpos = @navcols
-			@curfirstcol.upto( curcol() - 1 ) do |i|
-				cell_xpos +=  @c[ cellidx( currow(), i ) ].width
-				end
-			mv_print_color( currow() + 1, cell_xpos, "%-#{@c[ cell ].width}s", "#{@c[ cell ].content}", "#{@c[ cell ].color}" )
-			update_status_bar()
-		end
-		update_status_bar()
-		write_all_cells()
+    end
+
+# RK i hope i have not missed anything from below
+#		loop do
+##			ch = Ncurses.wgetch( @w ) 
+#			ch = @w.getch()
+#			case ch		# http://www.asciitable.com/
+#			when -1
+#				sleep @@sleep_time
+#			when 27		# KEY_ESC
+#				@c[ cell ].content = cell_old_content 
+#				update_status_bar()
+#				break
+#			when KEY_BACKSPACE, 263
+#				@c[ cell ].content.chop!
+#			when 9 #ctrl i = TAB 
+#				motion( 0, 1 )
+#				edit_cell( @curcell )
+#				break
+#			when KEY_ENTER, ?\n, ?\r
+#				if @c[ cell ].content[0] == "="
+#					@c[ cell ].content.shift
+#					@c[ cell ].content
+#				end
+#				motion( 1, 0 )
+#				break
+#			else
+#				if ch < 256 and ch > 0	
+#				@c[ cell ].content += ch.chr
+#				end
+#			end
+#			cell_xpos = @navcols
+      #@curfirstcol.upto( curcol() - 1 ) do |i|
+        #cell_xpos +=  @c[ cellidx( currow(), i ) ].width
+      #end
+      #mv_print_color( currow() + 1, cell_xpos, "%-#{@c[ cell ].width}s", "#{@c[ cell ].content}", "#{@c[ cell ].color}" )
+      #update_status_bar()
+#		end
+#		update_status_bar()
+#		write_all_cells() # why writing all cells, should only write changed one RK
 	end
+
+# complex version of get_string that allows for trappng of control character
+# such as C-c and C-h and TAB for completion
+  # and handle all editing events on it.
+  # @return status_code, string (0 if okay, 7 if help asked for, :TAB if TAB pressed
+  def rbgetstr(win, r, c, prompt, maxlen, config={})
+    retcode = 0
+    #$logger.debug " inside rbgetstr #{win} r:#{r} c:#{c} p:#{prompt} m:#{maxlen} "
+    raise "rbgetstr got no window. io.rb" if win.nil?
+    ins_mode = false
+    default = config[:default] || ""
+    prompt = "#{prompt} [#{default}]: " unless default
+    len = prompt.length
+
+    # clear the area of len+maxlen
+    color = 7 # $datacolor ??? XXX
+    str = default
+    clear_this win, r, c, color, len+maxlen+1
+    print_this(win, prompt+str, color, r, c)
+    len = prompt.length + str.length
+    begin
+      #Ncurses.echo(); # here it is causing Alt-i to be printed
+    curpos = str.length
+    prevchar = 0
+    entries = nil
+    while true
+      #ch=win.getchar() # i need to copy this in XXX insert mode will only work, also C-c
+      ch=getchar()
+      case ch
+      when 3 # -1 # C-c
+        return -1, nil
+      when 10, 13
+        #retcode = :ENTER
+        break
+      when ?\C-h.getbyte(0), ?\C-?.getbyte(0), 127 # delete previous character/backspace
+        len -= 1 if len > prompt.length
+        curpos -= 1 if curpos > 0
+        str.slice!(curpos)
+        clear_this win, r, c, color, len+maxlen+1
+        #print_this(win, prompt+str, color, r, c)
+      when 330 # delete character on cursor
+        #len -= 1 if len > prompt.length
+        #curpos -= 1 if curpos > 0
+        str.slice!(curpos) #rescue next
+        clear_this win, r, c, color, len+maxlen+1
+      when ?\C-g.getbyte(0)
+        #x print_footer_help(helptext)
+        helptext = config[:helptext] || "No help provided"
+        print_help(win, r, c, color, helptext)
+        return 7, nil
+      when KEY_LEFT
+        curpos -= 1 if curpos > 0
+        len -= 1 if len > prompt.length
+        win.wmove r, c+len # since getchar is not going back on del and bs
+        next
+      when KEY_RIGHT
+        if curpos < str.length
+          curpos += 1 #if curpos < str.length
+          len += 1 
+          win.wmove r, c+len # since getchar is not going back on del and bs
+        end
+        next
+      when ?\M-i.getbyte(0) 
+        ins_mode = !ins_mode
+        next
+      when 9 # TAB
+        retcode = :TAB
+        break
+      # in rusc we go to next cell rather than do any completion
+        #if config
+          #if prevchar == 9
+            #if !entries.nil? and !entries.empty?
+              #str = entries.delete_at(0)
+            #end
+          #else
+            #tabc = config[:tab_completion] unless tabc
+            #next unless tabc
+            #entries = tabc.call(str)
+            #$logger.debug " tab got #{entries} "
+            #str = entries.delete_at(0) unless entries.nil? or entries.empty?
+          #end
+        #end
+      else
+        #if ch < 0 || ch > 255 # RK in rbcurse it is 255
+        if ch < 0 || ch > 127
+          Ncurses.beep
+          next
+        end
+        # if control char, beep
+        if ch.chr =~ /[[:cntrl:]]/
+          Ncurses.beep
+          next
+        end
+        if ins_mode
+          str[curpos] = ch.chr
+        else
+          str.insert(curpos, ch.chr)
+        end
+        len += 1
+        curpos += 1
+        break if str.length > maxlen
+      end
+      print_this(win, prompt+str, color, r, c)
+      win.wmove r, c+len # more for arrow keys, curpos may not be end
+      prevchar = ch
+    end
+    str = default if str == ""
+    ensure
+      Ncurses.noecho();
+    end
+    return retcode, str
+  end
+  def clear_this win, r, c, color, len
+    print_this(win, "%-*s" % [len," "], color, r, c)
+  end
+    ##
+    # prints given text to window, in color at x and y coordinates
+    # @param [Window] window to write to
+    # @param [String] text to print
+    # @param [int] color such as $datacolor or $promptcolor
+    # @param [int] x 
+    # @param [int] y 
+    # @see Window#printstring
+    # Consider using Window#printstring
+  def print_this(win, text, color, x, y)
+    if(win == nil)
+      raise "win nil in printthis"
+    end
+    #$log.debug " printthis #{win} , #{text} , #{x} , #{y} "
+    #I am unable to get the colors due to not being familiar, basically i want white on black
+    #color=Ncurses.COLOR_PAIR(color);
+    #win.attron(color);
+    win.mvprintw(x, y, "%s" % text);
+    #win.attroff(color);
+    win.refresh
+  end
+  def print_help(win, r, c, color, helptext)
+    print_this(win, "%-*s" % [helptext.length+2," "], color, r, c)
+    print_this(win, "%s" % helptext, color, r, c)
+    sleep(5)
+  end
 
 	def mark_cell( idx=@curcell )
 		@c[ idx ].selected = true
@@ -533,7 +717,8 @@ class RuscWindowFrame < RuscWindow
 		write_all_cells() unless visual == true
 	end
 
-	def update_status_bar()
+  # this is the top bar used when we edit (press 's' for example)
+ def update_status_bar()
 		@status_info = @curcell + " [" + currow().to_s + ", " + curcol().to_s + "]:"
 		mv_print_color( 0, 0, "%-#{@wcols}s", "#{@status_info} #{@c[ @curcell ].content}", "")
 	end
